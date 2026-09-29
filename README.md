@@ -1,4 +1,3 @@
-```markdown
 # PLD.lua (FF11 GearSwap User Script for Paladin / ナイト用GearSwapスクリプト)
 
 [ English | [日本語](#日本語) ]
