@@ -46,6 +46,7 @@ Windower4 の GearSwap フォルダ内に配置してください：
 Windower4/addons/GearSwap/data/PLD.lua
 （または Windower4/addons/GearSwap/data/<キャラクター名>_PLD.lua）
 
+
 ## 📜 ライセンスと免責事項
 
 ### 1. ライセンス (License)
