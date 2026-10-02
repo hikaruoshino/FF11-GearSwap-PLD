@@ -1,54 +1,57 @@
-# PLD.lua (FF11 GearSwap User Script for Paladin / ナイト用GearSwapスクリプト)
+# 【FFXI GearSwap】ナイト (PLD) 高機能・全自動迎撃 ＆ SIRD100%ケアル着替えスクリプト
 
-[ English | [日本語](#日本語) ]
-
----
-
-## English
-
-A feature-complete, highly optimized **Paladin (PLD)** GearSwap script for Windower 4 in *FINAL FANTASY XI*.
-
-### 🌟 Key Features
-- **Pre-Cast Cure Latency Prevention**:  
-  - **/RDM (FC 80% Cap)**: Pre-emptively equips `sets.midcast.Cure` during `precast` to avoid packet latency loss.  
-  - **Other Subjobs (FC 69%)**: Equips `sets.precast.FC` during `precast`, swapping to Cure gear right before landing via dynamic timer.
-- **Enemy Spell & Status Intercept**: Automatically detects enemy nukes, AoE spells, and status ailments (Sleep, Silence, Paralysis, etc.), swapping to `sets.StatusResist` or `sets.idle.Magical`.
-- **Phalanx Fail-Safe**: Swaps to Phalanx Received gear when receiving Phalanx II, with built-in protection against buff expiration logs.
-
-### ⚙️ Required Gear Sets (`PLD_gear.lua`)
-- `sets.precast.FC`
-- `sets.midcast.Cure`
-- `sets.midcast.interruption`
-- `sets.idle.Magical`
-- `sets.StatusResist`
-- `sets.midcast.IncreasedPhalanx`
-
-### 📜 License & Disclaimer
-- **License**: Released under the **MIT License**. Free for personal use, modification, and redistribution.
-- **Disclaimer**: Provided "as-is" without warranty. Use at your own risk.
+FF11（ファイナルファンタジーXI）のナイト（PLD）用 GearSwap スクリプトです。  
+過去クロウラーの巣などのマスターレベル上げ（マスポ）における過酷なマルチリンク環境（R数値 3000〜4200）でも**100%絶対に詠唱中断されず、最高性能でケアルを着弾させる**ための自動タイマー制御および敵魔法・状態異常自動迎撃ロジックを搭載しています。
 
 ---
 
-<a name="日本語"></a>
-## 日本語
+## 🙏 謝意（ベースコードについて）
 
-FINAL FANTASY XI の Windower4 アドオン「GearSwap」で使用する、ナイト（PLD）専用の全自動着替えスクリプトです。
+本スクリプトのベース構造および主要処理は、**ぐりーずさん** が公開されている解説サイト **[GearSwapコード一覧 (https://greeds.net/gearswap-code-list/)](https://greeds.net/gearswap-code-list/)** のコードをベースとして活用・カスタマイズさせていただいております。  
+FF11コミュニティおよびGearSwapの開発・普及に多大な貢献をされているぐりーずさんに心より深謝申し上げます。
 
-### 🌟 主な機能
-- **超高速ケアルのパケット遅延対策**:
-  - **サポ赤時 (FC 80%)**: 通信ラグによる着替え失敗を防ぐため、`precast` 時に直接ケアル着弾装備（`sets.midcast.Cure`）を着用。
-  - **サポ赤以外 (FC 69%)**: `precast` でFC装備を着用後、着弾直前にタイマーでケアル装備へ着替え。
-- **敵魔法・状態異常自動迎撃**: 敵の単体・範囲魔法や状態異常魔法（睡眠・静寂・麻痺・石化等）を判定し、魔回避（`sets.StatusResist`）や魔防（`sets.idle.Magical`）へ自動着替え。
-- **被ファランクス受領＆誤作動防止**: ファランクス受領時に一時着替え。「効果が切れた」ログによる誤着替えを完全防止。
+---
 
-### ⚙️ 必要な装備セット（`PLD_gear.lua` 内）
-- `sets.precast.FC`（ファストキャスト）
-- `sets.midcast.Cure`（ケアル回復量50% + SIRD109%）
-- `sets.midcast.interruption`（詠唱中断防止100%）
-- `sets.idle.Magical`（魔防・イージス）
-- `sets.StatusResist`（魔回避・全状態異常耐性）
-- `sets.midcast.IncreasedPhalanx`（被ファランクス+）
+## 📦 ファイル構成
 
-### 📜 ライセンスと免責事項
-- **ライセンス**: **MITライセンス** に基づいて公開されています。改変・再配布・個人利用は自由です。
-- **免責事項**: 本スクリプトの使用によるいかなる問題・損害についても一切の責任を負いません。自己責任でご利用ください。
+GitHubリポジトリからダウンロード後、以下の2ファイルを `Windower4/addons/GearSwap/data/` （またはご自身のキャラクター名フォルダー）に配置してください。
+
+* **`PLD.lua`** : スクリプト本体（サポ赤別FC自動分岐、タイマー動的計算、敵魔法パケット＆ログ自動迎撃処理）
+* **`PLD_gear.lua`** : 装備セット定義ファイル（全装備セット、SIRD100%装備、StatusResist装備などを一括管理）
+
+---
+
+## 🌟 主な機能と特徴
+
+### 1. サポ赤別 ファラストキャスト（FC）自動分岐 ＆ SIRD 100% 保障
+* **サポ赤時（FC 80%キャップ / 詠唱時間0.50秒）**:  
+  超高速詠唱のため通信ラグで midcast が間に合わない事故を防ぐため、`job_precast` の段階で直接 `sets.midcast.Cure`（高HP ＋ ケアル回復量 ＋ SIRD 100%）を着用します。
+* **サポ赤以外時（FC 69% / 詠唱時間0.77秒）**:  
+  `sets.precast.FC` で詠唱開始後、詠唱時間の99%以上を `sets.midcast.interruption`（詠唱中断率100%ダウン装備）でガードし、着弾直前（デフォルト 0.08秒前）の一瞬だけ `sets.midcast.Cure` へ自動切り替えします。
+
+### 2. 回線負荷（R数値 3000〜4200）対応のタイマー可変調整コマンド
+マスポ等の高負荷環境や画面描画（30 FPS前後）の遅延に合わせて、ゲーム内のチャット欄からタイマーマージンを一発で変更できます。
+
+* 通常時（軽負荷）: `//gs c cureadjust 0.02` （0.02秒前着替え）
+* **クロ巣マスポ時（★推奨）**: `//gs c cureadjust 0.08` （**0.08秒前着替え / R数値3000以上・30FPS対応**）
+* 超過密・超高負荷時: `//gs c cureadjust 0.12` （0.12秒前着替え）
+
+### 3. 敵魔法・状態異常自動迎撃 ＆ 被ファランクス受領機能
+* **パケット＆ログ自動検知**: 敵のガ系・ジャ系範囲魔法や状態異常魔法（スリプル、サイレス、パライゾ、石化等）を自動検知し、`sets.StatusResist`（魔回避+700以上/全状態耐性+70以上）または `sets.idle.Magical`（対魔法装備）へ速攻着替え。3.5秒後に自動復帰します。
+* **被ファランクス受領**: フェイスや他者からのファランクス詠唱を検知し、自動的に `sets.midcast.IncreasedPhalanx` へ着替えて効果を最大化します。
+
+---
+
+## ⚙️ 導入・使用方法
+
+1. リポジトリ内の `PLD.lua` および `PLD_gear.lua` をダウンロードします。
+2. `Windower4/addons/GearSwap/data/`（または `GearSwap/data/キャラクター名/`）に両方のファイルを配置します。
+3. FFXIゲーム内で `//gs reload` または `//gs load PLD` を実行します。
+4. マスポ等の回線が重い環境では `//gs c cureadjust 0.08` を実行して着替えタイマーを最適化してください。
+
+---
+
+## 📜 ライセンス・免責事項
+
+* 本コードは個人のゲームプレイ快適化および学習目的で公開されています。
+* 導入およびカスタマイズは自己責任にてご利用ください。
