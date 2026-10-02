@@ -1,5 +1,10 @@
 ------------------------------------------------------------------------------------
--- 【ナイト専用・サポ赤別FC自動分岐＆敵魔法自動迎撃対応版】 PLD.lua
+-- 【ナイト専用・ケアル＆全魔法 完全SIRD100%防衛＆FC動的3段階着替え対応】 PLD.lua (v6.2)
+-- 
+-- 【着替えシーケンス】
+-- 1. Precast (詠唱開始時)  : sets.precast.FC (FC80%キャップ対応で高速詠唱開始)
+-- 2. Midcast (詠唱動作中)  : sets.midcast.interruption (詠唱中断率100%ダウン/SIRD100%で被ダメージガード)
+-- 3. 着弾直前 (動的タイマー後) : sets.midcast.Cure / 各種着弾装備 (ケアル回復量・敵対心等)
 ------------------------------------------------------------------------------------
 
 function get_sets()
@@ -17,14 +22,16 @@ end
 function job_setup()
     state.Buff['神聖の印']      = buffactive['神聖の印'] or false
 
-    state.IdleMode:options('Normal','kurosu','StatusResist')
-    state.OffenseMode:options('Normal','kurosu','Magical','StatusResist')
+    state.IdleMode:options('Normal','kurosu')
+    state.OffenseMode:options('Normal','kurosu','Magical')
     state.WeaponskillMode:options('Normal','SubtleBlow')
     state.MainWeapons   = M{'ブルトガング','マレヴォレンス','マリグナスソード'}
     state.SubWeapons    = M{'ドゥバン','イージス'}
     state.Increased     = M(true) -- デフォルトで自動着替えON
     state.KnockBack     = M(false)
-    state.CureAdjust    = M('0.08', '0.02', '0.05', '0.10', '0.12') -- 回線・高負荷用タイマー可変調整
+
+    -- 可変調整タイマーのデフォルト値 (0.08秒前着替え)
+    state.CureAdjust    = M('0.08')
 end
 
 function user_unload()
@@ -32,20 +39,12 @@ function user_unload()
 end
 
 ------------------------------------------------------------------------------------
--- ★【サポ赤別 FC分岐処理】precast (詠唱開始前) のケアル先回り着替え
+-- ★【Precast】全魔法共通で FC装備 (sets.precast.FC) を最速着用して詠唱開始
 ------------------------------------------------------------------------------------
 function job_precast(spell, action, spellMap, eventArgs)
-    if spell.english:find('Cure') or spell.name:contains('ケアル') or (spellMap and spellMap == 'Cure') then
-        if player.sub_job == '赤' then
-            -- 【サポ赤時: FC 80% / 詠唱0.50秒】
-            -- 超高速詠唱のため通信ラグで midcast 着替えが間に合わないため、
-            -- precast の瞬間に直接 sets.midcast.Cure（高HP＋ケアル回復量＋SIRD109%）を着用
-            equip(sets.midcast.Cure)
-            eventArgs.handled = true
-        else
-            -- 【サポ赤以外時: FC 69% / 詠唱0.77秒】
-            -- 詠唱時間にコンマ数秒の余裕があるため、precast は FC装備（sets.precast.FC）を着て詠唱開始
-            -- その後、Interruption 関数のタイマーで sets.midcast.Cure へ着替える
+    if string.find(spell.type, 'Magic') then
+        -- ケアル含むすべての魔法でまず FC 装備を確実に着用！
+        if sets.precast and sets.precast.FC then
             equip(sets.precast.FC)
             eventArgs.handled = true
         end
@@ -53,7 +52,7 @@ function job_precast(spell, action, spellMap, eventArgs)
 end
 
 ------------------------------------------------------------------------------------
--- ★【二重着替え防止】Mote-Include 標準の default_midcast 自動着替えをバイパス
+-- ★【Midcast】Mote-Include の自動着替えをバイパスし Interruption 関数に一元化
 ------------------------------------------------------------------------------------
 function job_midcast(spell, action, spellMap, eventArgs)
     if string.find(spell.type, 'Magic') then
@@ -62,60 +61,62 @@ function job_midcast(spell, action, spellMap, eventArgs)
 end
 
 ------------------------------------------------------------------------------------
--- ★ Interruption 関数（自詠唱魔法の動的タイマー処理）
+-- ★【Interruption 関数】SIRD100%即時着用 ＆ FC動的逆算着弾タイマー
+-- シーケンス: sets.precast.FC -> sets.midcast.interruption -> sets.midcast.Cure (等)
 ------------------------------------------------------------------------------------
 function Interruption(spell, action, spellMap, eventArgs)
-    local fc_val = 69
-    if sets.precast.FC and sets.precast.FC.value then
-        fc_val = sets.precast.FC.value
+    if not spell or not spell.type or not string.find(spell.type, 'Magic') then
+        return
     end
 
+    -- 1) FC (ファストキャスト) 率の動的算出
+    local fc_val = 69
+    if sets.precast and sets.precast.FC and sets.precast.FC.value then
+        fc_val = sets.precast.FC.value
+    end
     local fc = fc_val / 100
 
     if player.sub_job == '赤' then
-        fc = fc + 15/100
+        fc = fc + 0.15
     elseif player.main_job == '赤' then
-        fc = fc + 38/100
+        fc = fc + 0.38
     end
-    
-    if fc >= 80/100 then
-        fc = 80/100
+
+    if fc >= 0.80 then
+        fc = 0.80
     end
-    
+
     eventArgs.handled = true
 
-    -- ★ ケアル系の処理
-    if spell.english:find('Cure') or spell.name:contains('ケアル') or (spellMap and spellMap == 'Cure') then
-        if player.sub_job == '赤' then
-            -- サポ赤時は job_precast で直接着用済みのため維持
-            equip(sets.midcast.Cure)
-            return
-        end
-    end
-    
-    -- 回線ラグ・高負荷用タイマーマージン（デフォルト 0.08秒）
+    -- 2) 実効詠唱時間の計算 (基底時間 * (1 - FC) - 可変調整マージン)
+    local base_cast = spell.cast_time or 2.5
     local adjust = tonumber(state.CureAdjust and state.CureAdjust.value) or 0.08
-    local cast_time = (spell.cast_time * (1 - fc)) - adjust
+    local cast_time = (base_cast * (1 - fc)) - adjust
 
-    if cast_time < 0.05 then cast_time = 0.05 end
+    if cast_time < 0.05 then
+        cast_time = 0.05
+    end
 
-    -- 1) まず詠唱中断防止装備(SIRD 100%)を着用
-    equip(sets.midcast.interruption)
+    -- 3) 【中間ステップ】まず速攻で SIRD 100% 装備 (sets.midcast.interruption) を着用！
+    if sets.midcast and sets.midcast.interruption then
+        equip(sets.midcast.interruption)
+    end
 
-    -- 2) 計算された着弾直前タイミングで各魔法の着弾装備へ切り替え
+    -- 4) 【最終ステップ】逆算された cast_time 秒後に各魔法の着弾装備 (sets.midcast.Cure等) へ切り替え
     local sjis_name = windower.to_shift_jis(spell.name)
+
     if spell.english:find('Cure') or spell.name:contains('ケアル') or (spellMap and spellMap == 'Cure') then
         send_command('wait '..cast_time..'; gs equip sets.midcast.Cure')
-    elseif sets.midcast[spell.name] then
+    elseif sets.midcast and sets.midcast[spell.name] then
         send_command('wait '..cast_time..'; gs equip sets.midcast[''..sjis_name..'']')
-    elseif spellMap and sets.midcast[spellMap] then
+    elseif spellMap and sets.midcast and sets.midcast[spellMap] then
         send_command('wait '..cast_time..'; gs equip sets.midcast.'..spellMap)
-    elseif sets.midcast[spell.english] then
+    elseif spell.english and sets.midcast and sets.midcast[spell.english] then
         send_command('wait '..cast_time..'; gs equip sets.midcast[''..spell.english..'']')
-    elseif sets.midcast[spell.skill] then
+    elseif spell.skill and sets.midcast and sets.midcast[spell.skill] then
         local sjis_skill = windower.to_shift_jis(spell.skill)
         send_command('wait '..cast_time..'; gs equip sets.midcast[''..sjis_skill..'']')
-    elseif sets.midcast[spell.type] then
+    elseif spell.type and sets.midcast and sets.midcast[spell.type] then
         send_command('wait '..cast_time..'; gs equip sets.midcast.'..spell.type) 
     end
 end
@@ -204,7 +205,7 @@ windower.register_event('incoming text', function(original, modified, mode)
 
     -- 被ファランクス自動受領
     if not state.Increased or state.Increased.value then
-        local sjis_phalanx = "\x83\x74\x83\x40\x83\x89\x83\x93\x83\x4e\x83\x58"
+        local sjis_phalanx = "t@NX"
         local is_phalanx_spell = original:contains(sjis_phalanx) or 
                                  (windower.to_shift_jis and original:contains(windower.to_shift_jis('ファランクス'))) or
                                  original:lower():contains('phalanx')
@@ -258,16 +259,20 @@ windower.register_event('incoming text', function(original, modified, mode)
 end)
 
 ------------------------------------------------------------------------------------
--- セルフコマンド制御（タイマー調整等）
+-- ★【コマンド拡張】 タイマー可変調整コマンド (//gs c cureadjust <秒数>)
 ------------------------------------------------------------------------------------
 function job_self_command(cmdParams, eventArgs)
-    if cmdParams[1] == 'cureadjust' then
+    if cmdParams[1]:lower() == 'cureadjust' then
         if cmdParams[2] then
-            state.CureAdjust:set(cmdParams[2])
-            add_to_chat(122, 'ケアル着替えタイマーを ' .. cmdParams[2] .. ' 秒前に設定しました。')
+            local val = tonumber(cmdParams[2])
+            if val then
+                state.CureAdjust:set(string.format('%.2f', val))
+                add_to_chat(207, windower.to_shift_jis('[PLD.lua] ケアル着替え可変タイマーを ' .. string.format('%.2f', val) .. ' 秒前に設定しました。'))
+            end
         else
-            add_to_chat(122, '現在のケアル着替えタイマー: ' .. state.CureAdjust.value .. ' 秒前')
+            add_to_chat(207, windower.to_shift_jis('[PLD.lua] 現在のケアル着替え可変タイマー: ' .. tostring(state.CureAdjust.value) .. ' 秒前'))
         end
+        eventArgs.handled = true
     end
 end
 
