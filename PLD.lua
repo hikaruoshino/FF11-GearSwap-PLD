@@ -1,5 +1,5 @@
 ------------------------------------------------------------------------------------
--- 【ナイト専用・ケアル＆全魔法 完全SIRD100%防衛＆FC動的3段階着替え対応】 PLD.lua (v6.4)
+-- 【ナイト専用・ケアル＆全魔法 完全SIRD100%防衛＆FC動的3段階着替え対応】 PLD.lua (v6.5)
 -- 
 -- 【着替えシーケンス】
 -- 1. Precast (詠唱開始時)  : sets.precast.FC (FC80%キャップ対応で高速詠唱開始)
@@ -17,6 +17,9 @@ function get_sets()
     if not status then
         pcall(include, player.name .. '_gear.lua')
     end
+
+    -- 敵の TP技の分類表 (mob_tp_moves)。無くても動く (そのときは TP技では着替えない)
+    pcall(include, 'mob_tp_moves.lua')
 end
 
 -- 可変調整タイマー: 着弾の何秒前にケアル装備へ切り替えるか (//gs c cureadjust <秒数> で変更)
@@ -36,6 +39,11 @@ function job_setup()
     state.SubWeapons    = M{'ドゥバン','イージス'}
     state.Increased     = M(true) -- デフォルトで自動着替えON
     state.KnockBack     = M(false)
+    -- 敵の魔法・TP技に合わせて、対魔法装備 (sets.idle.Magical) と状態異常耐性装備 (sets.StatusResist) に着替えるか。
+    -- 物理で殴る敵が多い場所 (クロウラーの巣のマスターポイント稼ぎなど) では、着替えると被ダメージが増えるのでオフにする。
+    -- 切り替え: //gs c toggle MagicalCut   (被ファランクスの着替えは、オフでも行う)
+    -- 待機モードか戦闘モードを kurosu にしている間も、同じく着替えない
+    state.MagicalCut    = M(true, 'MagicalCut')
 end
 
 function user_unload()
@@ -175,6 +183,8 @@ local PHALANX_IDS = S{106, 107}   -- ファランクス / ファランクスII
 local CAST_HOLD_RATE = 2          -- 詠唱時間に掛ける倍率 (着弾のパケットが届かないときの保険の期限)
 local CAST_MARGIN_SEC = 2         -- さらに足す余裕
 local DEFAULT_HOLD_SEC = 20       -- 詠唱時間が分からないときの保険の期限
+-- 敵の TP技 (特殊技): category 7 = 構え (param は詠唱と同じ 24931 / 28787)、category 11 = 発動
+local TP_HOLD_SEC = 6             -- 構えから発動までの保険の期限 (発動のパケットが届かないとき)
 
 -- 着弾待ちの詠唱: [詠唱した人の ID] = {kind = 'StatusResist' / 'Magical' / 'Phalanx', until_time = 保険の期限}
 local pending_casts = {}
@@ -193,6 +203,16 @@ local function auto_set_table(kind)
     end
 end
 
+-- 敵の魔法・TP技に合わせた着替え (対魔法装備・状態異常耐性装備) をしてよいか。次のどちらかなら着替えない:
+--   ・MagicalCut をオフにしている (//gs c toggle MagicalCut)
+--   ・待機モードか戦闘モードが kurosu (クロウラーの巣向け。物理で殴る敵が多く、着替えると被ダメージが増える)
+local function magical_cut_enabled()
+    if state.MagicalCut and not state.MagicalCut.value then return false end
+    if state.IdleMode and state.IdleMode.value == 'kurosu' then return false end
+    if state.OffenseMode and state.OffenseMode.value == 'kurosu' then return false end
+    return true
+end
+
 -- 今着るべき装備の種類 (状態異常耐性 > 対魔法 > 被ファランクス)。
 -- 期限切れの詠唱と、倒れた・消えた人の詠唱はここで消す
 local function current_auto_kind()
@@ -206,8 +226,10 @@ local function current_auto_kind()
             found[cast.kind] = true
         end
     end
-    if found.StatusResist then return 'StatusResist' end
-    if found.Magical then return 'Magical' end
+    -- 対魔法装備と状態異常耐性装備は、MagicalCut がオンで kurosu モードでないときだけ (それ以外は普段の装備のまま受ける)
+    local intercept = magical_cut_enabled()
+    if found.StatusResist and intercept then return 'StatusResist' end
+    if found.Magical and intercept then return 'Magical' end
     if found.Phalanx then return 'Phalanx' end
     return nil
 end
@@ -225,8 +247,9 @@ local function update_auto_set()
     end
 end
 
-local function add_pending(caster_id, kind, spell)
-    local hold = (spell and spell.cast_time) and (spell.cast_time * CAST_HOLD_RATE + CAST_MARGIN_SEC) or DEFAULT_HOLD_SEC
+local function add_pending(caster_id, kind, spell, hold_sec)
+    local hold = hold_sec
+        or (spell and spell.cast_time) and (spell.cast_time * CAST_HOLD_RATE + CAST_MARGIN_SEC) or DEFAULT_HOLD_SEC
     pending_casts[caster_id] = {kind = kind, until_time = os.clock() + hold}
     update_auto_set()
     -- 着弾も中断も届かなかったときのため、期限が来たらもう一度確かめる
@@ -298,6 +321,36 @@ windower.register_event('action', function(act)
     elseif act.category == 4 then
         -- 魔法の着弾 (敵の魔法・ファランクスとも)
         remove_pending(act.actor_id)
+
+    elseif act.category == 7 then
+        -- 敵の TP技の構え。魔法属性は sets.idle.Magical、状態異常は sets.StatusResist に着替える。
+        -- 物理の技と、分類表に無い技は着替えない (普段の装備で受ける)
+        if act.param == CAST_INTERRUPT then
+            remove_pending(act.actor_id)
+            return
+        end
+        if act.param ~= CAST_BEGIN or not target or not action or not mob_tp_moves then return end
+
+        local actor = windower.ffxi.get_mob_by_id(act.actor_id)
+        if not actor or actor.spawn_type ~= 16 or actor.in_party then return end
+
+        local move_id = action.param
+        local kind = mob_tp_moves.status[move_id] and 'StatusResist'
+            or mob_tp_moves.magical[move_id] and 'Magical' or nil
+        local for_me = target.id == player.id or mob_tp_moves.aoe[move_id]
+        -- //gs debugmode がオンなら、敵の TP技と分類をチャットログに出す (分類表に無い技を見つけるため)
+        if _settings.debug_mode then
+            local move = gearswap.res.monster_abilities[move_id]
+            add_to_chat(207, '[PLD.lua] TP技 ' .. move_id .. ' ' .. (move and move.ja or '不明な技')
+                .. ': ' .. (kind or '着替えなし') .. (for_me and '' or ' (対象外)'))
+        end
+        if kind and for_me then
+            add_pending(act.actor_id, kind, nil, TP_HOLD_SEC)
+        end
+
+    elseif act.category == 11 then
+        -- 敵の TP技の発動
+        remove_pending(act.actor_id)
     end
 end)
 
@@ -357,6 +410,18 @@ function job_customize_melee_set(meleeSet)
 end
 
 function job_state_change(stateField, newValue, oldValue)
+    if stateField == 'MagicalCut' then
+        add_to_chat(207, '[PLD.lua] 敵の魔法・TP技に合わせた着替え (対魔法・状態異常耐性): ' .. (newValue and 'オン' or 'オフ (普段の装備のまま受ける)'))
+        -- 着替えている最中にオフにしたら、すぐ普段の装備に戻す (オンにしたら、着弾待ちの魔法があれば着替える)
+        update_auto_set()
+    elseif stateField == 'Idle Mode' or stateField == 'Offense Mode' then
+        -- kurosu モードでは対魔法装備・状態異常耐性装備に着替えない。モードを変えた時点の状況に合わせ直す
+        if newValue == 'kurosu' or oldValue == 'kurosu' then
+            add_to_chat(207, '[PLD.lua] 敵の魔法・TP技に合わせた着替え (対魔法・状態異常耐性): '
+                .. (magical_cut_enabled() and 'する' or 'しない (kurosu モードまたは MagicalCut オフ)'))
+            update_auto_set()
+        end
+    end
     if user_state_change then
         user_state_change(stateField, newValue, oldValue)
     end
