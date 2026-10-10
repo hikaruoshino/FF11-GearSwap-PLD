@@ -1,5 +1,5 @@
 ------------------------------------------------------------------------------------
--- 【ナイト専用・ケアル＆全魔法 完全SIRD100%防衛＆FC動的3段階着替え対応】 PLD.lua (v6.3)
+-- 【ナイト専用・ケアル＆全魔法 完全SIRD100%防衛＆FC動的3段階着替え対応】 PLD.lua (v6.4)
 -- 
 -- 【着替えシーケンス】
 -- 1. Precast (詠唱開始時)  : sets.precast.FC (FC80%キャップ対応で高速詠唱開始)
@@ -141,17 +141,40 @@ local status_keywords = S{
     'bio', 'dia', 'curse', 'amnesia', 'death', 'charm', 'bind', 'drain', 'aspir'
 }
 
-local aoe_keywords = S{
-    'ガ', 'ジャ', 'メテオ', 'コメット', 'アルテマ', 'インパクト', 'フルフル',
-    'ga', 'ja', 'meteor', 'comet', 'ultima', 'impact'
+-- 範囲魔法の見分け方: 名前の末尾 (ランクの数字を除く) が ガ / ジャ か、メテオなどの名前を含むもの。
+-- 「ガ」「ga」を含むかで見ると、ゲイン系 (Gain-) やマドリガルなど範囲でない魔法にも反応してしまう
+local aoe_suffixes = {'ガ', 'ジャ', 'ga', 'ja'}
+local aoe_names = {
+    'メテオ', 'コメット', 'アルテマ', 'インパクト', 'フルフル',
+    'meteor', 'comet', 'ultima', 'impact'
 }
+
+local function has_aoe_suffix(name)
+    name = (name:gsub('%s*[ivIV]+$', ''))
+    for _, suffix in ipairs(aoe_suffixes) do
+        if name:sub(-#suffix) == suffix then return true end
+    end
+    return false
+end
+
+local function is_aoe_spell(spell)
+    if not spell then return false end
+    local ja, en = spell.ja or '', (spell.en or ''):lower()
+    if has_aoe_suffix(ja) or has_aoe_suffix(en) then return true end
+    for _, name in ipairs(aoe_names) do
+        if ja:find(name, 1, true) or en:find(name, 1, true) then return true end
+    end
+    return false
+end
 
 -- パケットで検知する (チャットのログは Shift-JIS で届き、自分の詠唱にも反応してしまうため使わない)
 -- category 8 (詠唱) の param: 24931 = 詠唱開始 / 28787 = 詠唱中断。category 4 = 魔法の着弾
 local CAST_BEGIN, CAST_INTERRUPT = 24931, 28787
 local PHALANX_IDS = S{106, 107}   -- ファランクス / ファランクスII
-local CAST_MARGIN_SEC = 2         -- 詠唱時間に足す余裕 (着弾のパケットが届かないときの保険の期限)
-local DEFAULT_HOLD_SEC = 8        -- 詠唱時間が分からないときの保険の期限
+-- 敵の詠唱は res の詠唱時間より長いことがある (フリーズ: res 8.5 秒・実測 14.4 秒) ので、倍にして待つ
+local CAST_HOLD_RATE = 2          -- 詠唱時間に掛ける倍率 (着弾のパケットが届かないときの保険の期限)
+local CAST_MARGIN_SEC = 2         -- さらに足す余裕
+local DEFAULT_HOLD_SEC = 20       -- 詠唱時間が分からないときの保険の期限
 
 -- 着弾待ちの詠唱: [詠唱した人の ID] = {kind = 'StatusResist' / 'Magical' / 'Phalanx', until_time = 保険の期限}
 local pending_casts = {}
@@ -170,12 +193,14 @@ local function auto_set_table(kind)
     end
 end
 
--- 今着るべき装備の種類 (状態異常耐性 > 対魔法 > 被ファランクス)。期限切れの詠唱はここで消す
+-- 今着るべき装備の種類 (状態異常耐性 > 対魔法 > 被ファランクス)。
+-- 期限切れの詠唱と、倒れた・消えた人の詠唱はここで消す
 local function current_auto_kind()
     local now = os.clock()
     local found = {}
     for caster_id, cast in pairs(pending_casts) do
-        if now > cast.until_time then
+        local caster = windower.ffxi.get_mob_by_id(caster_id)
+        if now > cast.until_time or not caster or caster.hpp == 0 then
             pending_casts[caster_id] = nil
         else
             found[cast.kind] = true
@@ -201,7 +226,7 @@ local function update_auto_set()
 end
 
 local function add_pending(caster_id, kind, spell)
-    local hold = (spell and spell.cast_time) and (spell.cast_time + CAST_MARGIN_SEC) or DEFAULT_HOLD_SEC
+    local hold = (spell and spell.cast_time) and (spell.cast_time * CAST_HOLD_RATE + CAST_MARGIN_SEC) or DEFAULT_HOLD_SEC
     pending_casts[caster_id] = {kind = kind, until_time = os.clock() + hold}
     update_auto_set()
     -- 着弾も中断も届かなかったときのため、期限が来たらもう一度確かめる
@@ -220,14 +245,7 @@ local function enemy_cast_kind(spell, target_id, my_id)
     -- res の名前は日本語・英語の両方で調べる (キーワードに両方あるため)
     local spell_name = spell and ((spell.ja or '') .. ' ' .. (spell.en or '')):lower() or ''
 
-    local is_aoe = false
-    for kw in pairs(aoe_keywords) do
-        if spell_name:contains(kw) then
-            is_aoe = true
-            break
-        end
-    end
-    if target_id ~= my_id and not is_aoe then
+    if target_id ~= my_id and not is_aoe_spell(spell) then
         return nil
     end
 
@@ -263,7 +281,13 @@ windower.register_event('action', function(act)
         if actor.spawn_type == 16 and not actor.in_party then
             -- 敵 (spawn_type 16) の詠唱開始
             local kind = enemy_cast_kind(spell, target.id, player.id)
-            if kind then add_pending(act.actor_id, kind, spell) end
+            if kind then
+                -- //gs debugmode がオンなら、迎撃のきっかけになった魔法をチャットログに出す
+                if _settings.debug_mode then
+                    add_to_chat(207, '[PLD.lua] 迎撃 (' .. kind .. '): ' .. (spell and spell.ja or '不明な魔法'))
+                end
+                add_pending(act.actor_id, kind, spell)
+            end
         elseif PHALANX_IDS[action.param] and target.id == player.id then
             -- フェイスなどが自分にファランクスを詠唱し始めた
             if not state.Increased or state.Increased.value then
