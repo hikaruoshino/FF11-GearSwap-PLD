@@ -34,6 +34,15 @@ function init_gear_sets()
     back={ name="ルディアノスマント", augments={'HP+60','Eva.+20 /Mag. Eva.+20','HP+20','Enmity+10','Phys. dmg. taken-10%',}},
 	}
 
+    -- 最高敵対心装備 (パリセード・センチネル・リアクト・ランパート・マジェスティ用)
+    -- sets.Enmity から胴・左耳・右指を敵対心の高い装備に替える (+15)。
+    -- HP と被ダメージカットが下がるので、使う瞬間だけ着るアビリティ・魔法に限って使う
+    sets.EnmityMax = set_combine(sets.Enmity,{
+        body="ＣＶキュイラス+3",         -- 敵対心+16 (ＲＶサーコート+4 は +10)
+        left_ear="ライムアイスピアス",   -- 敵対心+5  (アスプロピアス は 0)
+        right_ring="ヴェクサーリング+1", -- 敵対心+4  (ゼラチナスリング+1 は 0)
+    })
+
     -- ノックバック
     sets.KnockBack = {back="リパルスマント"}
 
@@ -225,10 +234,10 @@ function init_gear_sets()
 	sets.precast.JA['インビンシブル']   = set_combine(sets.Enmity,{legs="ＣＢブリーチズ+3"})
 	sets.precast.JA['ホーリーサークル'] = set_combine(sets.Enmity,{feet="ＲＶレギンス+3"})
     sets.precast.JA['シールドバッシュ'] = set_combine(sets.Enmity,{hands="ＣＢガントレ+3"})
-	sets.precast.JA['センチネル']       = set_combine(sets.Enmity,{feet="ＣＢレギンス+3"})
+	sets.precast.JA['センチネル']       = set_combine(sets.EnmityMax,{feet="ＣＢレギンス+3"})
 	sets.precast.JA['かばう']           = set_combine(sets.Enmity,{head="ＲＶコロネット+1",legs="ＣＢブリーチズ+3"})
-	sets.precast.JA['ランパート']       = set_combine(sets.Enmity,{head="ＣＢコロネット+3"})
-	sets.precast.JA['マジェスティ']     = sets.Enmity
+	sets.precast.JA['ランパート']       = set_combine(sets.EnmityMax,{head="ＣＢコロネット+3"})
+	sets.precast.JA['マジェスティ']     = sets.EnmityMax
     sets.precast.JA['フィールティ']     = set_combine(sets.Enmity,{body="ＣＢサーコート+3"})
 	sets.precast.JA['シバルリー']       = {
         ammo="クォーツタスラム+1",
@@ -247,7 +256,7 @@ function init_gear_sets()
 	}
 	sets.precast.JA['神聖の印']         = sets.Enmity
 	sets.precast.JA['セプルカー']       = sets.Enmity
-	sets.precast.JA['パリセード']       = sets.Enmity
+	sets.precast.JA['パリセード']       = sets.EnmityMax
 	sets.precast.JA['インターヴィーン'] = sets.Enmity
 
 	
@@ -426,19 +435,19 @@ function init_gear_sets()
     })
 	
 -- ★リアクトを追加
-    sets.midcast['リアクト'] = set_combine(sets.Enmity,{
+    sets.midcast['リアクト'] = set_combine(sets.EnmityMax,{
     ammo="サピエンスオーブ",
     head="ロースバルブータ+1",
-    body="ＲＶサーコート+4",
+    body="ＣＶキュイラス+3",
     hands="ＣＢガントレ+3",
     legs="ＣＢブリーチズ+3",
     feet="ＣＶサバトン+3",
     neck="月光の首飾り",
     waist="クリードボードリエ",
-    left_ear="アスプロピアス",
+    left_ear="ライムアイスピアス",
     right_ear="クリプティクピアス",
     left_ring="アペリエリング+1",
-    right_ring="ゼラチナスリング+1",
+    right_ring="ヴェクサーリング+1",
     back={ name="ルディアノスマント", augments={'HP+60','Eva.+20 /Mag. Eva.+20','HP+20','Enmity+10','Phys. dmg. taken-10%',}},
     })
 	
