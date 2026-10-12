@@ -1,5 +1,5 @@
 ------------------------------------------------------------------------------------
--- 【ナイト専用・ケアル＆全魔法 完全SIRD100%防衛＆FC動的3段階着替え対応】 PLD.lua (v6.5)
+-- 【ナイト専用・ケアル＆全魔法 完全SIRD100%防衛＆FC動的3段階着替え対応】 PLD.lua (v6.6)
 -- 
 -- 【着替えシーケンス】
 -- 1. Precast (詠唱開始時)  : sets.precast.FC (FC80%キャップ対応で高速詠唱開始)
@@ -179,6 +179,12 @@ end
 -- category 8 (詠唱) の param: 24931 = 詠唱開始 / 28787 = 詠唱中断。category 4 = 魔法の着弾
 local CAST_BEGIN, CAST_INTERRUPT = 24931, 28787
 local PHALANX_IDS = S{106, 107}   -- ファランクス / ファランクスII
+-- 学者の範囲ファランクス: 女神降臨の章 (アビリティ 218) のあとのファランクスは、対象が詠唱者自身のまま範囲になる。
+-- 詠唱開始のパケットだけでは範囲かどうか分からないので、女神降臨の章を使った人を覚えておく
+local JA_CATEGORY = 6             -- アビリティの使用 (act.param がアビリティの番号)
+local ACCESSION_ID = 218          -- 女神降臨の章
+local ACCESSION_SEC = 60          -- 女神降臨の章の効果時間 (次の魔法で消える)
+local accession_until = {}        -- [使った人の ID] = 効果が切れる時刻
 -- 敵の詠唱は res の詠唱時間より長いことがある (フリーズ: res 8.5 秒・実測 14.4 秒) ので、倍にして待つ
 local CAST_HOLD_RATE = 2          -- 詠唱時間に掛ける倍率 (着弾のパケットが届かないときの保険の期限)
 local CAST_MARGIN_SEC = 2         -- さらに足す余裕
@@ -193,13 +199,13 @@ local auto_set_on = false         -- 迎撃・被ファランクスの装備を�
 local AUTO_SET_COMMAND = {
     StatusResist = 'sets.StatusResist',
     Magical      = 'sets.idle.Magical',
-    Phalanx      = 'sets.midcast.IncreasedPhalanx',
+    Phalanx      = 'sets.ReceivedPhalanx',
 }
 
 local function auto_set_table(kind)
     if kind == 'StatusResist' then return sets.StatusResist
     elseif kind == 'Magical' then return sets.idle.Magical
-    elseif kind == 'Phalanx' then return sets.midcast.IncreasedPhalanx
+    elseif kind == 'Phalanx' then return sets.ReceivedPhalanx
     end
 end
 
@@ -280,8 +286,20 @@ local function enemy_cast_kind(spell, target_id, my_id)
     return 'Magical'
 end
 
+-- 被ファランクスの装備セットを、このファイル専用の名前 (sets.ReceivedPhalanx) に移す。
+-- user-globals.lua にはチャットログで「ファランクス」を見つけて sets.midcast.IncreasedPhalanx に着替え、
+-- 3 秒固定で戻す処理がある。それが重なると着弾後も戻らないので、元の名前を空けてそちらを止める
+-- (ナイトの被ファランクスは、下のパケット検知が着替えと戻しの両方を受け持つ)
+local function take_over_phalanx_set()
+    if sets.midcast and sets.midcast.IncreasedPhalanx then
+        sets.ReceivedPhalanx = sets.midcast.IncreasedPhalanx
+        sets.midcast.IncreasedPhalanx = nil
+    end
+end
+
 windower.register_event('action', function(act)
     if not act then return end
+    take_over_phalanx_set()
     local player = windower.ffxi.get_player()
     if not player or act.actor_id == player.id then return end   -- 自分の詠唱は3段階着替えが受け持つ
 
@@ -311,15 +329,26 @@ windower.register_event('action', function(act)
                 end
                 add_pending(act.actor_id, kind, spell)
             end
-        elseif PHALANX_IDS[action.param] and target.id == player.id then
-            -- フェイスなどが自分にファランクスを詠唱し始めた
-            if not state.Increased or state.Increased.value then
+        elseif PHALANX_IDS[action.param] then
+            -- フェイスなどが自分にファランクスを詠唱し始めた。
+            -- または、同じパーティーの人が女神降臨の章のあとに自分自身へ詠唱し始めた (範囲ファランクス)
+            local to_me = target.id == player.id
+            local accession = accession_until[act.actor_id]
+            local aoe = target.id == act.actor_id and actor.in_party
+                and accession ~= nil and os.clock() <= accession
+            if (to_me or aoe) and sets.ReceivedPhalanx and (not state.Increased or state.Increased.value) then
                 add_pending(act.actor_id, 'Phalanx', spell)
             end
         end
 
+    elseif act.category == JA_CATEGORY then
+        if act.param == ACCESSION_ID then
+            accession_until[act.actor_id] = os.clock() + ACCESSION_SEC
+        end
+
     elseif act.category == 4 then
-        -- 魔法の着弾 (敵の魔法・ファランクスとも)
+        -- 魔法の着弾 (敵の魔法・ファランクスとも)。女神降臨の章は魔法 1 回で消える
+        accession_until[act.actor_id] = nil
         remove_pending(act.actor_id)
 
     elseif act.category == 7 then
