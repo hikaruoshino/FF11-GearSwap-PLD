@@ -34,7 +34,7 @@ function init_gear_sets()
     back={ name="ルディアノスマント", augments={'HP+60','Eva.+20 /Mag. Eva.+20','HP+20','Enmity+10','Phys. dmg. taken-10%',}},
 	}
 
-    -- 最高敵対心装備 (パリセード・センチネル・リアクト・ランパート・マジェスティ・フォイル・ヴァレション用)
+    -- 最高敵対心装備 (パリセード・センチネル・リアクト・ランパート・マジェスティ・フォイル・ヴァレション・ヴァリエンス用)
     -- sets.Enmity から胴・左耳・右指を敵対心の高い装備に替える (+15)。
     -- HP と被ダメージカットが下がるので、使う瞬間だけ着るアビリティ・魔法に限って使う
     sets.EnmityMax = set_combine(sets.Enmity,{
@@ -239,6 +239,7 @@ function init_gear_sets()
 	sets.precast.JA['ランパート']       = set_combine(sets.EnmityMax,{head="ＣＢコロネット+3"})
 	sets.precast.JA['マジェスティ']     = sets.EnmityMax
 	sets.precast.JA['ヴァレション']     = sets.EnmityMax
+	sets.precast.JA['ヴァリエンス']     = sets.EnmityMax
     sets.precast.JA['フィールティ']     = set_combine(sets.Enmity,{body="ＣＢサーコート+3"})
 	sets.precast.JA['シバルリー']       = {
         ammo="クォーツタスラム+1",
