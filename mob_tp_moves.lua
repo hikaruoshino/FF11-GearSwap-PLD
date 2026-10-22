@@ -1,6 +1,6 @@
 -- 敵の TP技 (特殊技) の分類表。番号は Windower の res.monster_abilities と同じ。
 -- 自動生成 (GearSwap/research/mob_tp_moves_join.lua)。手で直さず、作り直すこと。
--- 分類の出どころ: LandSandBoat (https://github.com/LandSandBoat/server、GPL-3.0) の技データと、
+-- 分類の出どころ: LandSandBoat contributors (https://github.com/LandSandBoat/server、GPL-3.0) の技データを元に変更したものと、
 --   BG-wiki (https://www.bg-wiki.com/)・FF11用語辞典 (https://wiki.ffo.jp/) の記述。
 -- ライセンス: このファイルは LandSandBoat 由来のデータを含むため、GPL-3.0 で配布する
 --   (https://www.gnu.org/licenses/gpl-3.0.html)。
