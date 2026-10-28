@@ -299,9 +299,14 @@ local function take_over_phalanx_set()
     end
 end
 
-windower.register_event('action', function(act)
+-- action は全員分の行動 (近接の 1 発ごとも) で届く。GearSwap の register_event は呼ぶたびに装備の再計算
+-- (refresh_globals) を挟むので、raw_register_event で受け、使わない種類の行動は先に捨てる (PUP.lua と同じ)
+local ACTION_CATEGORIES = {[4] = true, [6] = true, [7] = true, [8] = true, [11] = true}
+
+windower.raw_register_event('action', function(act)
     if not act then return end
     take_over_phalanx_set()
+    if not ACTION_CATEGORIES[act.category] then return end
     local player = windower.ffxi.get_player()
     if not player or act.actor_id == player.id then return end   -- 自分の詠唱は3段階着替えが受け持つ
 
